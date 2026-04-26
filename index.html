@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="theme-color" content="#ff5fa2" />
+<title>AIモテ度診断</title>
+<link href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+P+One&family=Kosugi+Maru&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box}html,body{margin:0;padding:0;height:100%;overflow:hidden}
+body{font-family:"Kosugi Maru",system-ui,sans-serif;color:#fff;background:linear-gradient(180deg,#ff5fa2,#3a0030);touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100dvh;padding:12px;gap:10px;max-width:480px;margin:0 auto;align-items:center}
+.title{font-family:"Mochiy Pop P One",sans-serif;font-size:24px;color:#ffe066;-webkit-text-stroke:3px #000;paint-order:stroke fill;text-shadow:3px 3px 0 #ff1f7c;margin:8px 0;text-align:center;transform:rotate(-2deg)}
+.cam-wrap{flex:1;width:100%;max-width:380px;aspect-ratio:3/4;border-radius:18px;overflow:hidden;position:relative;background:#000;border:4px solid #ffe066;box-shadow:0 0 20px rgba(255,224,102,.5)}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.scan{position:absolute;inset:0;background:linear-gradient(180deg,transparent,rgba(255,95,162,.4) 50%,transparent);transform:translateY(-100%);pointer-events:none}
+.scan.go{animation:scan 1.6s linear}
+@keyframes scan{to{transform:translateY(100%)}}
+.heart{position:absolute;font-size:28px;animation:rise 2s linear forwards;pointer-events:none}
+@keyframes rise{from{transform:translateY(0);opacity:1}to{transform:translateY(-200px);opacity:0}}
+.result{position:absolute;inset:auto 0 0 0;background:rgba(0,0,0,.85);padding:14px;text-align:center;display:none}
+.result.show{display:block}
+.result .pt{font-family:"Mochiy Pop P One",sans-serif;font-size:48px;color:#ffe066;line-height:1}
+.result .pt small{font-size:18px}
+.result .lvl{font-family:"Mochiy Pop P One",sans-serif;font-size:14px;color:#ff5fa2;margin-top:4px}
+.result .cmt{font-size:12px;margin-top:6px;line-height:1.5}
+.actions{display:flex;gap:8px;width:100%;justify-content:center;flex-wrap:wrap}
+.actions button{background:#ffe066;color:#000;border:3px solid #000;padding:12px 22px;font-family:"Mochiy Pop P One",sans-serif;font-size:14px;border-radius:999px;cursor:pointer;box-shadow:3px 3px 0 #000}
+.actions .share{background:#1da1f2;color:#fff}
+.actions button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000}
+.actions button:disabled{opacity:.4}
+.note{font-size:9px;opacity:.65;text-align:center;line-height:1.5}
+.err{padding:10px;background:rgba(255,0,0,.2);border:2px solid #f55;border-radius:10px;font-size:12px;display:none}
+.err.show{display:block}
+</style>
+</head>
+<body>
+<div id="app">
+<h1 class="title">AIモテ度診断 💘</h1>
+<div class="cam-wrap" id="wrap">
+  <video id="vid" autoplay playsinline muted></video>
+  <canvas id="cv"></canvas>
+  <div class="scan" id="scan"></div>
+  <div class="result" id="result">
+    <div class="pt"><span id="pt">??</span><small>点</small></div>
+    <div class="lvl" id="lvl">—</div>
+    <div class="cmt" id="cmt">—</div>
+  </div>
+</div>
+<div class="actions">
+  <button id="btn-go">📷 タップで診断</button>
+  <button id="btn-share" class="share" disabled>🔗 シェア</button>
+</div>
+<div class="note">※ネタ用。実際のモテ度ではないよ<br/>画像は端末内処理のみ・送信なし</div>
+<div class="err" id="err"></div>
+</div>
+<script>
+(()=>{
+'use strict';
+const SHARE_URL='https://maxtakaharu34-cmd.github.io/mote-jp/';
+const LEVELS=[
+{min:90,lvl:'神レベル',cmts:['街歩いてるだけで告白される','視線を独占する罪な人','モテすぎて事件になるレベル']},
+{min:75,lvl:'モテ偏差値高',cmts:['人気者オーラ全開','LINE通知が止まらない','二股要注意']},
+{min:60,lvl:'普通にモテる',cmts:['ちゃんとモテるタイプ','安定の人気','油断は禁物']},
+{min:45,lvl:'これからモテる',cmts:['磨けば光る原石','内面が魅力的','ジムで開花の予感']},
+{min:30,lvl:'たまにモテる',cmts:['知る人ぞ知る隠れ名作','身内ウケ最強','時代を先取りしてる']},
+{min:0,lvl:'これから頑張ろう',cmts:['人柄で勝負','まずは自分を好きに','量産より厳選で']}
+];
+const $=(id)=>document.getElementById(id);
+const vid=$('vid'),cv=$('cv'),scan=$('scan'),result=$('result'),wrap=$('wrap');
+let stream=null,lastPt=null,lastLvl=null;
+async function startCam(){
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:480,height:640},audio:false});
+    vid.srcObject=stream;await vid.play();return true;
+  }catch(e){$('err').textContent='カメラ起動失敗: '+e.message;$('err').classList.add('show');return false}
+}
+async function go(){
+  const btn=$('btn-go');
+  if(!stream){btn.textContent='📷 起動中…';btn.disabled=true;
+    const ok=await startCam();btn.disabled=false;
+    if(!ok){btn.textContent='📷 タップで診断';return}
+    await new Promise(r=>setTimeout(r,400));
+  }
+  btn.textContent='🔄 もう一度診断';diagnose();
+}
+function diagnose(){
+  if(!stream)return;
+  const w=vid.videoWidth||320,h=vid.videoHeight||240;
+  cv.width=w;cv.height=h;
+  const ctx=cv.getContext('2d');ctx.drawImage(vid,0,0,w,h);
+  const d=ctx.getImageData(Math.floor(w*.3),Math.floor(h*.3),Math.floor(w*.4),Math.floor(h*.4)).data;
+  let h1=0x811c9dc5;
+  for(let i=0;i<d.length;i+=16){h1^=d[i];h1=Math.imul(h1,16777619)>>>0}
+  // weight toward 50-90 for fun
+  const raw=h1%101;
+  const pt=Math.min(99,Math.max(20,raw));
+  const L=LEVELS.find(L=>pt>=L.min);
+  const cmt=L.cmts[h1%L.cmts.length];
+  scan.classList.remove('go');void scan.offsetWidth;scan.classList.add('go');
+  beep(440,.08);setTimeout(()=>beep(660,.08),200);setTimeout(()=>beep(880,.16),400);
+  for(let i=0;i<8;i++)setTimeout(()=>spawnHeart(),i*120+500);
+  setTimeout(()=>{
+    $('pt').textContent=pt;$('lvl').textContent=L.lvl;$('cmt').textContent=cmt;
+    result.classList.add('show');lastPt=pt;lastLvl=L.lvl;$('btn-share').disabled=false;fanfare();
+  },1500);
+}
+function spawnHeart(){
+  const h=document.createElement('div');h.className='heart';
+  h.textContent=['💘','💖','💕','💝','💗'][Math.floor(Math.random()*5)];
+  h.style.left=(20+Math.random()*60)+'%';h.style.bottom='10%';
+  wrap.appendChild(h);setTimeout(()=>h.remove(),2000);
+}
+let ac=null;const en=()=>{if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();return ac};
+const beep=(f,d,t='triangle',g=.13)=>{const a=en();const o=a.createOscillator();const gn=a.createGain();o.type=t;o.frequency.value=f;gn.gain.value=g;gn.gain.exponentialRampToValueAtTime(.0001,a.currentTime+d);o.connect(gn).connect(a.destination);o.start();o.stop(a.currentTime+d)};
+const fanfare=()=>{[523,659,784,1047,1318].forEach((f,i)=>setTimeout(()=>beep(f,.18,'triangle',.15),i*100))};
+$('btn-go').addEventListener('click',()=>{en();go()});
+$('btn-share').addEventListener('click',()=>{
+  if(lastPt==null)return;
+  const txt=`AIモテ度診断【${lastPt}点 / ${lastLvl}】 #モテ度診断`;
+  window.open(`https://x.com/intent/post?text=${encodeURIComponent(txt)}&url=${encodeURIComponent(SHARE_URL)}`,'_blank','noopener,noreferrer');
+});
+})();
+</script>
+</body>
+</html>
